@@ -1,0 +1,23 @@
+{
+  "name": "v-block-puzzle",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "repository": {
+    "type": "git",
+    "url": "http://local_proxy@127.0.0.1:26106/git/vapes/v-block-puzzle"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "pixi.js": "^7.4.3",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1"
+  }
+}
