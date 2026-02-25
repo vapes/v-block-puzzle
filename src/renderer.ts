@@ -19,6 +19,7 @@ export class Renderer {
   private comboText!: PIXI.Text;
   private dragContainer!: PIXI.Container;
   private ghostContainer!: PIXI.Container;
+  private destroyableContainer!: PIXI.Container;
   private gameOverContainer!: PIXI.Container;
   private overlayGraphics!: PIXI.Graphics;
   private clearAnimations: { graphics: PIXI.Graphics; startTime: number }[] = [];
@@ -46,6 +47,10 @@ export class Renderer {
     this.createScorePanel(layout);
     this.createGrid(layout);
     this.createTray(layout);
+
+    // Destroyable cells overlay (below ghost)
+    this.destroyableContainer = new PIXI.Container();
+    this.app.stage.addChild(this.destroyableContainer);
 
     // Ghost overlay for placement preview
     this.ghostContainer = new PIXI.Container();
@@ -308,6 +313,27 @@ export class Renderer {
 
   hideGhost(): void {
     this.ghostContainer.removeChildren();
+  }
+
+  showDestroyableHighlight(cells: number[][]): void {
+    this.destroyableContainer.removeChildren();
+    const { cellSize, gridOriginX, gridOriginY } = this.layout;
+
+    for (const [r, c] of cells) {
+      const hl = new PIXI.Graphics();
+      hl.beginFill(COLORS.destroyHighlight, 0.45);
+      hl.drawRoundedRect(CELL_GAP, CELL_GAP, cellSize - CELL_GAP * 2, cellSize - CELL_GAP * 2, CELL_RADIUS);
+      hl.endFill();
+      hl.lineStyle(2, COLORS.destroyHighlight, 0.9);
+      hl.drawRoundedRect(CELL_GAP, CELL_GAP, cellSize - CELL_GAP * 2, cellSize - CELL_GAP * 2, CELL_RADIUS);
+      hl.x = gridOriginX + c * cellSize;
+      hl.y = gridOriginY + r * cellSize;
+      this.destroyableContainer.addChild(hl);
+    }
+  }
+
+  hideDestroyableHighlight(): void {
+    this.destroyableContainer.removeChildren();
   }
 
   showDragPiece(piece: Piece, x: number, y: number): void {

@@ -10,6 +10,7 @@ export const COLORS = {
   cellBorder: 0x1a4a7a,
   highlight: 0x00ff88,
   highlightInvalid: 0xff4444,
+  destroyHighlight: 0xffdd44,
   text: 0xffffff,
   textSecondary: 0xaaaacc,
   scorePanel: 0x16213e,

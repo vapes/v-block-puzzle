@@ -117,8 +117,16 @@ export class InputHandler {
       const valid = this.state.canPlace(this.draggingPiece, gridPos);
       this.renderer.showGhost(this.draggingPiece, gridPos, valid);
       this.lastGridPos = gridPos;
+
+      if (valid) {
+        const destroyable = this.state.getDestroyableCells(this.draggingPiece, gridPos);
+        this.renderer.showDestroyableHighlight(destroyable);
+      } else {
+        this.renderer.hideDestroyableHighlight();
+      }
     } else {
       this.renderer.hideGhost();
+      this.renderer.hideDestroyableHighlight();
       this.lastGridPos = null;
     }
   }
@@ -133,6 +141,7 @@ export class InputHandler {
     if (this.lastGridPos && this.state.canPlace(piece, this.lastGridPos)) {
       this.renderer.hideDragPiece();
       this.renderer.hideGhost();
+      this.renderer.hideDestroyableHighlight();
       this.onPlace(piece, this.lastGridPos, trayIndex);
     } else {
       // Snap back
@@ -140,6 +149,7 @@ export class InputHandler {
       if (container) container.alpha = 1;
       this.renderer.hideDragPiece();
       this.renderer.hideGhost();
+      this.renderer.hideDestroyableHighlight();
     }
 
     this.draggingPiece = null;

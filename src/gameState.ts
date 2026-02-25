@@ -156,6 +156,40 @@ export class GameState {
     this.refillTray();
   }
 
+  getDestroyableCells(piece: Piece, pos: GridPosition): number[][] {
+    // Simulate placing the piece and find which rows/columns would be fully filled
+    const tempFilled: boolean[][] = Array.from({ length: GRID_SIZE }, (_, r) =>
+      Array.from({ length: GRID_SIZE }, (__, c) => this.grid[r][c].filled)
+    );
+
+    for (const [r, c] of piece.shape) {
+      tempFilled[pos.row + r][pos.col + c] = true;
+    }
+
+    const clearedRows: number[] = [];
+    const clearedCols: number[] = [];
+
+    for (let r = 0; r < GRID_SIZE; r++) {
+      if (tempFilled[r].every((v) => v)) clearedRows.push(r);
+    }
+
+    for (let c = 0; c < GRID_SIZE; c++) {
+      if (tempFilled.every((row) => row[c])) clearedCols.push(c);
+    }
+
+    const destroyable: number[][] = [];
+    for (const r of clearedRows) {
+      for (let c = 0; c < GRID_SIZE; c++) destroyable.push([r, c]);
+    }
+    for (const c of clearedCols) {
+      for (let r = 0; r < GRID_SIZE; r++) {
+        if (!clearedRows.includes(r)) destroyable.push([r, c]);
+      }
+    }
+
+    return destroyable;
+  }
+
   canAnyPieceBePlaced(): boolean {
     for (const piece of this.tray) {
       if (piece === null) continue;
