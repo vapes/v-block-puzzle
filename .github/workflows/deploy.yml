@@ -2,7 +2,7 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: ['claude/block-puzzle-game-ORB9Z']
+    branches: ['main']
 
 permissions:
   contents: read
