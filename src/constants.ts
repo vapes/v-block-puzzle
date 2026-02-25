@@ -18,10 +18,10 @@ export const COLORS = {
   gameOverOverlay: 0x000000,
 };
 
-// Block piece colors
+// Block piece colors (must not match any field/board colors)
 export const PIECE_COLORS = [
   0xe94560, // red
-  0x0f3460, // dark blue
+  0x0984e3, // blue
   0x533483, // purple
   0xf5a623, // orange
   0x44bd32, // green
