@@ -10,6 +10,8 @@ export class GameState {
   highScore: number;
   combo: number;
   gameOver: boolean;
+  bombCount: number;
+  nextBombThreshold: number;
 
   constructor() {
     this.grid = this.createEmptyGrid();
@@ -18,6 +20,8 @@ export class GameState {
     this.highScore = this.loadHighScore();
     this.combo = 0;
     this.gameOver = false;
+    this.bombCount = 0;
+    this.nextBombThreshold = 100;
     this.refillTray();
   }
 
@@ -210,12 +214,39 @@ export class GameState {
     return false;
   }
 
+  checkBombMilestone(): number {
+    let earned = 0;
+    while (this.score >= this.nextBombThreshold) {
+      this.bombCount++;
+      this.nextBombThreshold *= 2;
+      earned++;
+    }
+    return earned;
+  }
+
+  useBomb(): number[][] {
+    if (this.bombCount <= 0) return [];
+    this.bombCount--;
+    const cleared: number[][] = [];
+    for (let r = 0; r < GRID_SIZE; r++) {
+      for (let c = 0; c < GRID_SIZE; c++) {
+        if (this.grid[r][c].filled) {
+          cleared.push([r, c]);
+          this.grid[r][c] = { filled: false, color: 0 };
+        }
+      }
+    }
+    return cleared;
+  }
+
   reset(): void {
     this.grid = this.createEmptyGrid();
     this.tray = [];
     this.score = 0;
     this.combo = 0;
     this.gameOver = false;
+    this.bombCount = 0;
+    this.nextBombThreshold = 100;
     this.refillTray();
   }
 }

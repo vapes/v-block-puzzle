@@ -1,5 +1,5 @@
 import * as PIXI from 'pixi.js';
-import { GRID_SIZE, COLORS, CLEAR_ANIM_DURATION } from './constants';
+import { GRID_SIZE, COLORS, CLEAR_ANIM_DURATION, BOMB_ROW_DELAY } from './constants';
 import { GameState } from './gameState';
 import { Layout } from './types';
 import { Piece, GridPosition } from './types';
@@ -40,6 +40,16 @@ export class Renderer {
   private comboAnimTime = 0;
   private comboAnimActive = false;
   private comboBonusText!: PIXI.Text;
+  private bombContainer!: PIXI.Container;
+  private bombIcon!: PIXI.Graphics;
+  private bombCountText!: PIXI.Text;
+  private bombSweepBar!: PIXI.Graphics;
+  private bombAnimActive = false;
+  private bombAnimStartTime = 0;
+  private bombAnimDuration = 0;
+  private bombPulsing = false;
+  private bombNewAnim = false;
+  private bombNewAnimTime = 0;
 
   constructor(app: PIXI.Application) {
     this.app = app;
@@ -77,8 +87,16 @@ export class Renderer {
     this.dragContainer = new PIXI.Container();
     this.app.stage.addChild(this.dragContainer);
 
+    // Bomb sweep bar (above drag layer)
+    this.bombSweepBar = new PIXI.Graphics();
+    this.bombSweepBar.visible = false;
+    this.app.stage.addChild(this.bombSweepBar);
+
     // Combo animation (above drag layer)
     this.createComboUI(layout);
+
+    // Bomb button UI (above combo, below game over)
+    this.createBombUI(layout);
 
     // Game over overlay
     this.createGameOverUI(layout);
@@ -171,6 +189,190 @@ export class Renderer {
     this.comboContainer.addChild(this.comboBonusText);
 
     this.app.stage.addChild(this.comboContainer);
+  }
+
+  private createBombUI(layout: Layout): void {
+    this.bombContainer = new PIXI.Container();
+    this.bombContainer.visible = false;
+
+    // Background button
+    const btnBg = new PIXI.Graphics();
+    btnBg.beginFill(0x2a1a3e, 0.9);
+    btnBg.drawRoundedRect(-28, -24, 56, 48, 10);
+    btnBg.endFill();
+    btnBg.lineStyle(2, 0xff6600, 0.6);
+    btnBg.drawRoundedRect(-28, -24, 56, 48, 10);
+    this.bombContainer.addChild(btnBg);
+
+    // Bomb icon
+    this.bombIcon = new PIXI.Graphics();
+    this.drawBombIcon(this.bombIcon);
+    this.bombContainer.addChild(this.bombIcon);
+
+    // Count text ("x2", "x3", etc.)
+    this.bombCountText = new PIXI.Text('', {
+      fontFamily: 'Arial Black, Arial, sans-serif',
+      fontSize: 14,
+      fontWeight: 'bold',
+      fill: 0xff8800,
+      stroke: 0x000000,
+      strokeThickness: 2,
+    });
+    this.bombCountText.anchor.set(0, 0.5);
+    this.bombCountText.x = 10;
+    this.bombCountText.y = 2;
+    this.bombContainer.addChild(this.bombCountText);
+
+    // Position in score panel center
+    this.bombContainer.x = layout.width / 2;
+    this.bombContainer.y = layout.scoreY + 32;
+
+    this.app.stage.addChild(this.bombContainer);
+  }
+
+  private drawBombIcon(g: PIXI.Graphics): void {
+    g.clear();
+    // Body
+    g.beginFill(0x333333);
+    g.drawCircle(-4, 4, 12);
+    g.endFill();
+    // Body highlight
+    g.beginFill(0x4a4a4a);
+    g.drawCircle(-7, 1, 4);
+    g.endFill();
+    // Fuse connector
+    g.beginFill(0x666666);
+    g.drawRect(-7, -10, 6, 4);
+    g.endFill();
+    // Fuse
+    g.lineStyle(2, 0xcc9944);
+    g.moveTo(-4, -10);
+    g.bezierCurveTo(0, -16, 5, -15, 4, -18);
+    g.lineStyle(0);
+    // Spark
+    g.beginFill(0xff6600);
+    g.drawCircle(4, -18, 3);
+    g.endFill();
+    g.beginFill(0xffcc00);
+    g.drawCircle(4, -18, 1.5);
+    g.endFill();
+  }
+
+  updateBombDisplay(state: GameState): void {
+    if (state.bombCount <= 0) {
+      this.bombContainer.visible = false;
+      return;
+    }
+    this.bombContainer.visible = true;
+    this.bombCountText.text = state.bombCount >= 2 ? `x${state.bombCount}` : '';
+  }
+
+  getBombBounds(): { x: number; y: number; width: number; height: number } | null {
+    if (!this.bombContainer.visible) return null;
+    return {
+      x: this.bombContainer.x - 28,
+      y: this.bombContainer.y - 24,
+      width: 56,
+      height: 48,
+    };
+  }
+
+  animateBombClear(filledCells: number[][], onComplete: () => void): void {
+    const cellsByRow: Map<number, number[][]> = new Map();
+    for (const [r, c] of filledCells) {
+      if (!cellsByRow.has(r)) cellsByRow.set(r, []);
+      cellsByRow.get(r)!.push([r, c]);
+    }
+
+    this.bombSweepBar.visible = true;
+    this.bombAnimActive = true;
+    this.bombAnimStartTime = Date.now();
+    this.bombAnimDuration = GRID_SIZE * BOMB_ROW_DELAY + 300;
+
+    for (let r = 0; r < GRID_SIZE; r++) {
+      setTimeout(() => {
+        const rowCells = cellsByRow.get(r) || [];
+        if (rowCells.length > 0) {
+          this.animateClear(rowCells);
+        }
+        // Clear visuals for this row
+        for (let c = 0; c < GRID_SIZE; c++) {
+          this.drawCell(this.cellGraphics[r][c], this.layout.cellSize, COLORS.cellEmpty, 1);
+        }
+      }, r * BOMB_ROW_DELAY);
+    }
+
+    setTimeout(() => {
+      this.bombAnimActive = false;
+      this.bombSweepBar.clear();
+      this.bombSweepBar.visible = false;
+      onComplete();
+    }, this.bombAnimDuration);
+  }
+
+  updateBombAnimation(): void {
+    if (!this.bombAnimActive) return;
+
+    const elapsed = Date.now() - this.bombAnimStartTime;
+    const sweepDuration = GRID_SIZE * BOMB_ROW_DELAY;
+    const progress = Math.min(elapsed / sweepDuration, 1);
+
+    const y = this.layout.gridOriginY + progress * this.layout.gridTotalSize;
+    this.bombSweepBar.clear();
+    // Bright sweep line
+    this.bombSweepBar.beginFill(0xff4444, 0.8);
+    this.bombSweepBar.drawRect(
+      this.layout.gridOriginX - 6,
+      y - 3,
+      this.layout.gridTotalSize + 12,
+      6,
+    );
+    this.bombSweepBar.endFill();
+    // Glow around sweep line
+    this.bombSweepBar.beginFill(0xff8866, 0.25);
+    this.bombSweepBar.drawRect(
+      this.layout.gridOriginX - 6,
+      y - 14,
+      this.layout.gridTotalSize + 12,
+      28,
+    );
+    this.bombSweepBar.endFill();
+  }
+
+  isBombAnimating(): boolean {
+    return this.bombAnimActive;
+  }
+
+  setBombPulse(active: boolean): void {
+    this.bombPulsing = active;
+    if (!active) {
+      this.bombContainer.scale.set(1);
+    }
+  }
+
+  updateBombPulse(): void {
+    if (!this.bombPulsing || !this.bombContainer.visible) return;
+    const t = Date.now() / 200;
+    const scale = 1 + Math.sin(t) * 0.18;
+    this.bombContainer.scale.set(scale);
+  }
+
+  showBombEarnedAnim(): void {
+    this.bombNewAnim = true;
+    this.bombNewAnimTime = 0;
+  }
+
+  updateBombNewAnim(dt: number): void {
+    if (!this.bombNewAnim) return;
+    this.bombNewAnimTime += dt;
+    const t = this.bombNewAnimTime;
+    if (t < 20) {
+      const scale = 1 + Math.sin((t / 20) * Math.PI) * 0.4;
+      this.bombContainer.scale.set(scale);
+    } else {
+      this.bombContainer.scale.set(1);
+      this.bombNewAnim = false;
+    }
   }
 
   private spawnComboParticles(cx: number, cy: number, count: number, color: number): void {

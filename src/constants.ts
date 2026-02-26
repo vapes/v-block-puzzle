@@ -84,3 +84,4 @@ export const TRAY_SLOTS = 3;
 // Animation
 export const CLEAR_ANIM_DURATION = 300;
 export const DROP_ANIM_DURATION = 150;
+export const BOMB_ROW_DELAY = 60;
