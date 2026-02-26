@@ -19,17 +19,20 @@ export class InputHandler {
   private lastGridPos: GridPosition | null = null;
   private onPlace: (piece: Piece, pos: GridPosition, trayIndex: number) => void;
   private onRestart: () => void;
+  private onBomb: () => void;
 
   constructor(
     renderer: Renderer,
     state: GameState,
     onPlace: (piece: Piece, pos: GridPosition, trayIndex: number) => void,
     onRestart: () => void,
+    onBomb: () => void,
   ) {
     this.renderer = renderer;
     this.state = state;
     this.onPlace = onPlace;
     this.onRestart = onRestart;
+    this.onBomb = onBomb;
   }
 
   init(layout: Layout): void {
@@ -63,10 +66,22 @@ export class InputHandler {
       return;
     }
 
-    // Check if tapping a tray piece
+    // Block input during bomb animation
+    if (this.renderer.isBombAnimating()) return;
+
     const x = e.global.x;
     const y = e.global.y;
 
+    // Check if tapping the bomb button
+    const bombBounds = this.renderer.getBombBounds();
+    if (bombBounds && this.state.bombCount > 0 &&
+        x >= bombBounds.x && x <= bombBounds.x + bombBounds.width &&
+        y >= bombBounds.y && y <= bombBounds.y + bombBounds.height) {
+      this.onBomb();
+      return;
+    }
+
+    // Check if tapping a tray piece
     for (let i = 0; i < this.state.tray.length; i++) {
       const piece = this.state.tray[i];
       if (!piece) continue;
