@@ -7,6 +7,16 @@ import { Piece, GridPosition } from './types';
 const CELL_GAP = 2;
 const CELL_RADIUS = 4;
 
+interface ComboParticle {
+  graphics: PIXI.Graphics;
+  vx: number;
+  vy: number;
+  life: number;
+  maxLife: number;
+  gravity: number;
+  size: number;
+}
+
 export class Renderer {
   app: PIXI.Application;
   layout!: Layout;
@@ -16,13 +26,20 @@ export class Renderer {
   private trayPieceContainers: PIXI.Container[] = [];
   private scoreText!: PIXI.Text;
   private highScoreText!: PIXI.Text;
-  private comboText!: PIXI.Text;
   private dragContainer!: PIXI.Container;
   private ghostContainer!: PIXI.Container;
   private destroyableContainer!: PIXI.Container;
   private gameOverContainer!: PIXI.Container;
   private overlayGraphics!: PIXI.Graphics;
   private clearAnimations: { graphics: PIXI.Graphics; startTime: number }[] = [];
+  private comboContainer!: PIXI.Container;
+  private comboMainText!: PIXI.Text;
+  private comboSubText!: PIXI.Text;
+  private comboGlow!: PIXI.Graphics;
+  private comboParticles: ComboParticle[] = [];
+  private comboAnimTime = 0;
+  private comboAnimActive = false;
+  private comboBonusText!: PIXI.Text;
 
   constructor(app: PIXI.Application) {
     this.app = app;
@@ -60,6 +77,9 @@ export class Renderer {
     this.dragContainer = new PIXI.Container();
     this.app.stage.addChild(this.dragContainer);
 
+    // Combo animation (above drag layer)
+    this.createComboUI(layout);
+
     // Game over overlay
     this.createGameOverUI(layout);
   }
@@ -90,18 +110,91 @@ export class Renderer {
     this.highScoreText.x = layout.width - 24;
     this.highScoreText.y = layout.scoreY + 22;
     this.app.stage.addChild(this.highScoreText);
+  }
 
-    this.comboText = new PIXI.Text('', {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: 20,
+  private createComboUI(layout: Layout): void {
+    this.comboContainer = new PIXI.Container();
+    this.comboContainer.visible = false;
+
+    // Glow circle behind text
+    this.comboGlow = new PIXI.Graphics();
+    this.comboContainer.addChild(this.comboGlow);
+
+    // Main combo label ("COMBO x3!")
+    this.comboMainText = new PIXI.Text('', {
+      fontFamily: 'Arial Black, Arial, sans-serif',
+      fontSize: Math.max(48, Math.floor(layout.width * 0.12)),
       fontWeight: 'bold',
-      fill: COLORS.comboText,
+      fill: [0xffdd44, 0xff8800],
+      fillGradientType: 0,
+      stroke: 0x000000,
+      strokeThickness: 6,
+      dropShadow: true,
+      dropShadowColor: 0xff6600,
+      dropShadowBlur: 16,
+      dropShadowDistance: 0,
+      letterSpacing: 3,
     });
-    this.comboText.anchor.set(0.5, 0.5);
-    this.comboText.x = layout.width / 2;
-    this.comboText.y = layout.scoreY + 36;
-    this.comboText.alpha = 0;
-    this.app.stage.addChild(this.comboText);
+    this.comboMainText.anchor.set(0.5, 0.5);
+    this.comboContainer.addChild(this.comboMainText);
+
+    // Sub label ("GREAT!", "AMAZING!", etc.)
+    this.comboSubText = new PIXI.Text('', {
+      fontFamily: 'Arial Black, Arial, sans-serif',
+      fontSize: Math.max(28, Math.floor(layout.width * 0.065)),
+      fontWeight: 'bold',
+      fill: 0xffffff,
+      stroke: 0x000000,
+      strokeThickness: 4,
+      dropShadow: true,
+      dropShadowColor: 0x000000,
+      dropShadowBlur: 8,
+      dropShadowDistance: 0,
+    });
+    this.comboSubText.anchor.set(0.5, 0.5);
+    this.comboContainer.addChild(this.comboSubText);
+
+    // Bonus points text ("+48")
+    this.comboBonusText = new PIXI.Text('', {
+      fontFamily: 'Arial Black, Arial, sans-serif',
+      fontSize: Math.max(22, Math.floor(layout.width * 0.05)),
+      fontWeight: 'bold',
+      fill: 0x00ff88,
+      stroke: 0x000000,
+      strokeThickness: 3,
+      dropShadow: true,
+      dropShadowColor: 0x000000,
+      dropShadowBlur: 6,
+      dropShadowDistance: 0,
+    });
+    this.comboBonusText.anchor.set(0.5, 0.5);
+    this.comboContainer.addChild(this.comboBonusText);
+
+    this.app.stage.addChild(this.comboContainer);
+  }
+
+  private spawnComboParticles(cx: number, cy: number, count: number, color: number): void {
+    for (let i = 0; i < count; i++) {
+      const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.5;
+      const speed = 3 + Math.random() * 6;
+      const size = 3 + Math.random() * 5;
+      const g = new PIXI.Graphics();
+      g.beginFill(color);
+      g.drawCircle(0, 0, size);
+      g.endFill();
+      g.x = cx;
+      g.y = cy;
+      this.comboContainer.addChildAt(g, 0);
+      this.comboParticles.push({
+        graphics: g,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 1,
+        maxLife: 0.6 + Math.random() * 0.4,
+        gravity: 0.15,
+        size,
+      });
+    }
   }
 
   private createGrid(layout: Layout): void {
@@ -209,26 +302,151 @@ export class Renderer {
 
   showCombo(combo: number, linesCleared: number): void {
     if (combo <= 0) return;
-    let label = '';
-    if (linesCleared >= 3) label = 'AMAZING! ';
-    else if (linesCleared >= 2) label = 'GREAT! ';
-    if (combo > 1) label += `Combo x${combo}!`;
-    else if (linesCleared >= 2) label += `${linesCleared} Lines!`;
-    else label = '';
-    if (!label) return;
 
-    this.comboText.text = label;
-    this.comboText.alpha = 1;
-    this.comboText.scale.set(1.3);
+    // Determine labels
+    let mainLabel = '';
+    let subLabel = '';
+    let particleColor = 0xffdd44;
 
-    // Animate (handled in update loop)
+    if (combo > 1) {
+      mainLabel = `COMBO x${combo}`;
+    } else if (linesCleared >= 2) {
+      mainLabel = `${linesCleared} LINES`;
+    } else {
+      // Single line clear, no combo — skip the big animation
+      return;
+    }
+
+    if (linesCleared >= 3) {
+      subLabel = 'AMAZING!';
+      particleColor = 0xff44aa;
+    } else if (linesCleared >= 2) {
+      subLabel = 'GREAT!';
+      particleColor = 0x44ddff;
+    } else if (combo >= 4) {
+      subLabel = 'UNSTOPPABLE!';
+      particleColor = 0xff4444;
+    } else if (combo >= 3) {
+      subLabel = 'ON FIRE!';
+      particleColor = 0xff8800;
+    }
+
+    // Bonus points display
+    const bonusPoints = linesCleared * GRID_SIZE * combo;
+
+    const cx = this.layout.width / 2;
+    const cy = this.layout.gridOriginY + this.layout.gridTotalSize / 2;
+
+    // Setup text
+    this.comboMainText.text = mainLabel;
+    this.comboMainText.x = cx;
+    this.comboMainText.y = cy;
+    this.comboMainText.scale.set(0.3);
+    this.comboMainText.alpha = 1;
+
+    this.comboSubText.text = subLabel;
+    this.comboSubText.x = cx;
+    this.comboSubText.y = cy - Math.max(40, this.layout.width * 0.1);
+    this.comboSubText.scale.set(0.5);
+    this.comboSubText.alpha = subLabel ? 1 : 0;
+
+    this.comboBonusText.text = `+${bonusPoints}`;
+    this.comboBonusText.x = cx;
+    this.comboBonusText.y = cy + Math.max(40, this.layout.width * 0.1);
+    this.comboBonusText.scale.set(0.5);
+    this.comboBonusText.alpha = 1;
+
+    // Glow
+    const glowRadius = Math.max(60, this.layout.width * 0.18);
+    this.comboGlow.clear();
+    this.comboGlow.beginFill(particleColor, 0.25);
+    this.comboGlow.drawCircle(cx, cy, glowRadius);
+    this.comboGlow.endFill();
+    this.comboGlow.alpha = 1;
+    this.comboGlow.scale.set(0.5);
+
+    // Clear old particles
+    for (const p of this.comboParticles) {
+      this.comboContainer.removeChild(p.graphics);
+      p.graphics.destroy();
+    }
+    this.comboParticles = [];
+
+    // Spawn particles
+    const particleCount = Math.min(12 + combo * 4, 40);
+    this.spawnComboParticles(cx, cy, particleCount, particleColor);
+
+    // Activate
+    this.comboContainer.visible = true;
+    this.comboAnimActive = true;
+    this.comboAnimTime = 0;
   }
 
   updateComboAnimation(dt: number): void {
-    if (this.comboText.alpha > 0) {
-      this.comboText.alpha -= dt * 0.02;
-      this.comboText.scale.x += (1 - this.comboText.scale.x) * 0.1;
-      this.comboText.scale.y = this.comboText.scale.x;
+    if (!this.comboAnimActive) return;
+
+    this.comboAnimTime += dt;
+    const t = this.comboAnimTime;
+
+    // Phase 1: scale in with bounce (0 - 15 frames)
+    // Phase 2: hold (15 - 45 frames)
+    // Phase 3: fade out (45 - 75 frames)
+    const totalDuration = 75;
+
+    if (t < 15) {
+      // Bounce scale-in
+      const progress = t / 15;
+      const bounce = 1 + Math.sin(progress * Math.PI) * 0.3;
+      const scale = progress * bounce;
+      this.comboMainText.scale.set(scale);
+      this.comboSubText.scale.set(scale * 0.8);
+      this.comboBonusText.scale.set(scale * 0.7);
+      this.comboGlow.scale.set(0.5 + progress * 0.8);
+      this.comboGlow.alpha = progress;
+    } else if (t < 45) {
+      // Hold with gentle pulse
+      const pulse = 1 + Math.sin((t - 15) * 0.15) * 0.05;
+      this.comboMainText.scale.set(pulse);
+      this.comboSubText.scale.set(pulse * 0.8);
+      this.comboBonusText.scale.set(pulse * 0.7);
+      // Bonus text floats upward
+      this.comboBonusText.y -= dt * 0.3;
+      this.comboGlow.scale.set(1.3 + Math.sin((t - 15) * 0.1) * 0.1);
+    } else if (t < totalDuration) {
+      // Fade out and scale up
+      const fadeProgress = (t - 45) / 30;
+      const alpha = 1 - fadeProgress;
+      const scale = 1 + fadeProgress * 0.3;
+      this.comboMainText.alpha = alpha;
+      this.comboMainText.scale.set(scale);
+      this.comboSubText.alpha = alpha;
+      this.comboSubText.scale.set(scale * 0.8);
+      this.comboBonusText.alpha = alpha;
+      this.comboBonusText.y -= dt * 0.5;
+      this.comboGlow.alpha = alpha * 0.5;
+      this.comboGlow.scale.set(1.3 + fadeProgress * 0.5);
+    } else {
+      // Done
+      this.comboAnimActive = false;
+      this.comboContainer.visible = false;
+    }
+
+    // Update particles
+    for (let i = this.comboParticles.length - 1; i >= 0; i--) {
+      const p = this.comboParticles[i];
+      p.graphics.x += p.vx;
+      p.graphics.y += p.vy;
+      p.vy += p.gravity;
+      p.life -= dt / 60 / p.maxLife;
+
+      if (p.life <= 0) {
+        this.comboContainer.removeChild(p.graphics);
+        p.graphics.destroy();
+        this.comboParticles.splice(i, 1);
+      } else {
+        p.graphics.alpha = Math.max(0, p.life);
+        p.graphics.scale.set(p.life);
+      }
     }
   }
 

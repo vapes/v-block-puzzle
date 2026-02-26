@@ -5,8 +5,27 @@ import { InputHandler } from './input';
 import { computeLayout } from './layout';
 import { Piece, GridPosition } from './types';
 
+function requestFullscreen(): void {
+  const el = document.documentElement as HTMLElement & {
+    webkitRequestFullscreen?: () => Promise<void>;
+  };
+  if (document.fullscreenElement) return;
+  const req = el.requestFullscreen?.bind(el) ?? el.webkitRequestFullscreen?.bind(el);
+  if (req) req().catch(() => {});
+}
+
 function main() {
   const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
+
+  // On Android, enter fullscreen on first user tap
+  const isMobile = /Android/i.test(navigator.userAgent);
+  if (isMobile) {
+    const enterFullscreen = () => {
+      requestFullscreen();
+      window.removeEventListener('touchstart', enterFullscreen);
+    };
+    window.addEventListener('touchstart', enterFullscreen, { once: true });
+  }
 
   const app = new PIXI.Application({
     view: canvas,
