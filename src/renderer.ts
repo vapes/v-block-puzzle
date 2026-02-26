@@ -1,5 +1,5 @@
 import * as PIXI from 'pixi.js';
-import { GRID_SIZE, COLORS, CLEAR_ANIM_DURATION, BOMB_ROW_DELAY } from './constants';
+import { GRID_SIZE, COLORS, CLEAR_ANIM_DURATION } from './constants';
 import { GameState } from './gameState';
 import { Layout } from './types';
 import { Piece, GridPosition } from './types';
@@ -43,10 +43,16 @@ export class Renderer {
   private bombContainer!: PIXI.Container;
   private bombIcon!: PIXI.Graphics;
   private bombCountText!: PIXI.Text;
-  private bombSweepBar!: PIXI.Graphics;
+  private bombBlastWave!: PIXI.Graphics;
   private bombAnimActive = false;
   private bombAnimStartTime = 0;
   private bombAnimDuration = 0;
+  private bombAnimPhase: 'none' | 'fly' | 'explode' = 'none';
+  private bombFlyingBomb: PIXI.Graphics | null = null;
+  private bombFlyStartX = 0;
+  private bombFlyStartY = 0;
+  private bombFlyTargetX = 0;
+  private bombFlyTargetY = 0;
   private bombPulsing = false;
   private bombNewAnim = false;
   private bombNewAnimTime = 0;
@@ -87,10 +93,10 @@ export class Renderer {
     this.dragContainer = new PIXI.Container();
     this.app.stage.addChild(this.dragContainer);
 
-    // Bomb sweep bar (above drag layer)
-    this.bombSweepBar = new PIXI.Graphics();
-    this.bombSweepBar.visible = false;
-    this.app.stage.addChild(this.bombSweepBar);
+    // Bomb blast wave effect (above drag layer)
+    this.bombBlastWave = new PIXI.Graphics();
+    this.bombBlastWave.visible = false;
+    this.app.stage.addChild(this.bombBlastWave);
 
     // Combo animation (above drag layer)
     this.createComboUI(layout);
@@ -278,34 +284,58 @@ export class Renderer {
   }
 
   animateBombClear(filledCells: number[][], onComplete: () => void): void {
-    const cellsByRow: Map<number, number[][]> = new Map();
-    for (const [r, c] of filledCells) {
-      if (!cellsByRow.has(r)) cellsByRow.set(r, []);
-      cellsByRow.get(r)!.push([r, c]);
-    }
+    const centerR = (GRID_SIZE - 1) / 2;
+    const centerC = (GRID_SIZE - 1) / 2;
+    const maxDist = Math.sqrt(centerR * centerR + centerC * centerC);
+    const flyDuration = 250;
+    const explosionDuration = 500;
 
-    this.bombSweepBar.visible = true;
     this.bombAnimActive = true;
     this.bombAnimStartTime = Date.now();
-    this.bombAnimDuration = GRID_SIZE * BOMB_ROW_DELAY + 300;
+    this.bombAnimDuration = flyDuration + explosionDuration + 200;
+    this.bombAnimPhase = 'fly';
 
-    for (let r = 0; r < GRID_SIZE; r++) {
+    // Flying bomb start/target positions
+    this.bombFlyStartX = this.bombContainer.x;
+    this.bombFlyStartY = this.bombContainer.y;
+    this.bombFlyTargetX = this.layout.gridOriginX + this.layout.gridTotalSize / 2;
+    this.bombFlyTargetY = this.layout.gridOriginY + this.layout.gridTotalSize / 2;
+
+    // Create flying bomb graphic
+    this.bombFlyingBomb = new PIXI.Graphics();
+    this.drawBombIcon(this.bombFlyingBomb);
+    this.bombFlyingBomb.x = this.bombFlyStartX;
+    this.bombFlyingBomb.y = this.bombFlyStartY;
+    this.app.stage.addChild(this.bombFlyingBomb);
+
+    this.bombBlastWave.visible = true;
+
+    // Schedule cell clears based on distance from center
+    for (const [r, c] of filledCells) {
+      const dist = Math.sqrt((r - centerR) ** 2 + (c - centerC) ** 2);
+      const delay = flyDuration + (dist / maxDist) * explosionDuration;
       setTimeout(() => {
-        const rowCells = cellsByRow.get(r) || [];
-        if (rowCells.length > 0) {
-          this.animateClear(rowCells);
-        }
-        // Clear visuals for this row
-        for (let c = 0; c < GRID_SIZE; c++) {
-          this.drawCell(this.cellGraphics[r][c], this.layout.cellSize, COLORS.cellEmpty, 1);
-        }
-      }, r * BOMB_ROW_DELAY);
+        this.animateClear([[r, c]]);
+        this.drawCell(this.cellGraphics[r][c], this.layout.cellSize, COLORS.cellEmpty, 1);
+      }, delay);
     }
 
+    // Switch to explode phase after fly completes
+    setTimeout(() => {
+      this.bombAnimPhase = 'explode';
+      if (this.bombFlyingBomb) {
+        this.app.stage.removeChild(this.bombFlyingBomb);
+        this.bombFlyingBomb.destroy();
+        this.bombFlyingBomb = null;
+      }
+    }, flyDuration);
+
+    // Completion
     setTimeout(() => {
       this.bombAnimActive = false;
-      this.bombSweepBar.clear();
-      this.bombSweepBar.visible = false;
+      this.bombAnimPhase = 'none';
+      this.bombBlastWave.clear();
+      this.bombBlastWave.visible = false;
       onComplete();
     }, this.bombAnimDuration);
   }
@@ -314,29 +344,44 @@ export class Renderer {
     if (!this.bombAnimActive) return;
 
     const elapsed = Date.now() - this.bombAnimStartTime;
-    const sweepDuration = GRID_SIZE * BOMB_ROW_DELAY;
-    const progress = Math.min(elapsed / sweepDuration, 1);
+    const flyDuration = 250;
+    const explosionDuration = 500;
 
-    const y = this.layout.gridOriginY + progress * this.layout.gridTotalSize;
-    this.bombSweepBar.clear();
-    // Bright sweep line
-    this.bombSweepBar.beginFill(0xff4444, 0.8);
-    this.bombSweepBar.drawRect(
-      this.layout.gridOriginX - 6,
-      y - 3,
-      this.layout.gridTotalSize + 12,
-      6,
-    );
-    this.bombSweepBar.endFill();
-    // Glow around sweep line
-    this.bombSweepBar.beginFill(0xff8866, 0.25);
-    this.bombSweepBar.drawRect(
-      this.layout.gridOriginX - 6,
-      y - 14,
-      this.layout.gridTotalSize + 12,
-      28,
-    );
-    this.bombSweepBar.endFill();
+    if (this.bombAnimPhase === 'fly' && this.bombFlyingBomb) {
+      const progress = Math.min(elapsed / flyDuration, 1);
+      // Ease-out cubic
+      const eased = 1 - (1 - progress) ** 3;
+      this.bombFlyingBomb.x = this.bombFlyStartX + (this.bombFlyTargetX - this.bombFlyStartX) * eased;
+      this.bombFlyingBomb.y = this.bombFlyStartY + (this.bombFlyTargetY - this.bombFlyStartY) * eased;
+      this.bombFlyingBomb.scale.set(1 + eased * 0.5);
+    }
+
+    if (this.bombAnimPhase === 'explode') {
+      const explodeElapsed = elapsed - flyDuration;
+      const progress = Math.min(explodeElapsed / explosionDuration, 1);
+
+      const cx = this.bombFlyTargetX;
+      const cy = this.bombFlyTargetY;
+      const maxRadius = this.layout.gridTotalSize * 0.75;
+      const radius = progress * maxRadius;
+
+      this.bombBlastWave.clear();
+      // Expanding shockwave ring
+      const ringAlpha = 0.8 * (1 - progress);
+      this.bombBlastWave.lineStyle(4 + (1 - progress) * 4, 0xff4444, ringAlpha);
+      this.bombBlastWave.drawCircle(cx, cy, radius);
+      // Inner glow fill
+      this.bombBlastWave.beginFill(0xff6644, 0.12 * (1 - progress));
+      this.bombBlastWave.drawCircle(cx, cy, radius);
+      this.bombBlastWave.endFill();
+      // Bright center flash (fades quickly)
+      if (progress < 0.3) {
+        const flashAlpha = 0.4 * (1 - progress / 0.3);
+        this.bombBlastWave.beginFill(0xffaa44, flashAlpha);
+        this.bombBlastWave.drawCircle(cx, cy, radius * 0.3);
+        this.bombBlastWave.endFill();
+      }
+    }
   }
 
   isBombAnimating(): boolean {
