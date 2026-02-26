@@ -5,26 +5,54 @@ import { InputHandler } from './input';
 import { computeLayout } from './layout';
 import { Piece, GridPosition } from './types';
 
-function requestFullscreen(): void {
-  const el = document.documentElement as HTMLElement & {
+function requestFullscreen(canvas: HTMLCanvasElement): void {
+  // Try canvas fullscreen first (preferred)
+  const canvasReq = (canvas as HTMLCanvasElement & {
+    requestFullscreen?: () => Promise<void>;
     webkitRequestFullscreen?: () => Promise<void>;
+    mozRequestFullScreen?: () => Promise<void>;
+    msRequestFullscreen?: () => Promise<void>;
+  }).requestFullscreen?.bind(canvas) ??
+    (canvas as any).webkitRequestFullscreen?.bind(canvas) ??
+    (canvas as any).mozRequestFullScreen?.bind(canvas) ??
+    (canvas as any).msRequestFullscreen?.bind(canvas);
+
+  if (canvasReq) {
+    canvasReq().catch(() => {});
+    return;
+  }
+
+  // Fallback to document element
+  const el = document.documentElement as HTMLElement & {
+    requestFullscreen?: () => Promise<void>;
+    webkitRequestFullscreen?: () => Promise<void>;
+    mozRequestFullScreen?: () => Promise<void>;
+    msRequestFullscreen?: () => Promise<void>;
   };
-  if (document.fullscreenElement) return;
-  const req = el.requestFullscreen?.bind(el) ?? el.webkitRequestFullscreen?.bind(el);
-  if (req) req().catch(() => {});
+
+  const docReq = el.requestFullscreen?.bind(el) ??
+    el.webkitRequestFullscreen?.bind(el) ??
+    (el as any).mozRequestFullScreen?.bind(el) ??
+    (el as any).msRequestFullscreen?.bind(el);
+
+  if (docReq) {
+    docReq().catch(() => {});
+  }
 }
 
 function main() {
   const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
 
   // On Android, enter fullscreen on first user tap
-  const isMobile = /Android/i.test(navigator.userAgent);
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
   if (isMobile) {
     const enterFullscreen = () => {
-      requestFullscreen();
+      requestFullscreen(canvas);
       window.removeEventListener('touchstart', enterFullscreen);
+      window.removeEventListener('click', enterFullscreen);
     };
     window.addEventListener('touchstart', enterFullscreen, { once: true });
+    window.addEventListener('click', enterFullscreen, { once: true });
   }
 
   const app = new PIXI.Application({
